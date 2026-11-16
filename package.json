@@ -1,0 +1,64 @@
+{
+  "name": "qiksy-mcp",
+  "version": "1.86.1",
+  "mcpName": "app.qiksy/bridge",
+  "description": "Browser MCP server for the Chrome tab you already have open — your session, your logins. Gives Claude Code, Cursor, Codex and VS Code the live page: findings, forms, failed requests with server bodies.",
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "mcp-server",
+    "browser",
+    "browser-automation",
+    "qa",
+    "testing",
+    "accessibility",
+    "a11y",
+    "chrome-extension",
+    "claude",
+    "cursor",
+    "agent",
+    "browser-mcp",
+    "chrome-mcp",
+    "mcp-chrome-extension",
+    "claude-code",
+    "codex"
+  ],
+  "homepage": "https://qiksy.app/qa-copilot/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lesnyak-cyber/qiksy-mcp.git"
+  },
+  "bugs": "https://github.com/lesnyak-cyber/qiksy-mcp/issues",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "qiksy-mcp": "server.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "widgets.mjs",
+    "project.mjs",
+    "gaps.mjs",
+    "reports.mjs",
+    "open-tab.mjs",
+    "width-law.mjs",
+    "families.mjs",
+    "gallery.mjs",
+    "svg-shot.mjs",
+    "connect.mjs",
+    "agent-session.mjs",
+    "tokens.mjs",
+    "diff.mjs",
+    "README.md",
+    "AGENT-GUIDE.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.19.0",
+    "ws": "^8.18.0",
+    "zod": "^3.24.0"
+  }
+}

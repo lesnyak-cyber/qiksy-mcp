@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "app.qiksy/bridge",
+  "title": "Qiksy Bridge",
+  "description": "Browser MCP for the Chrome you already have open: your logins, forms, failed requests, screenshots.",
+  "websiteUrl": "https://qiksy.app/qa-copilot/",
+  "repository": {
+    "url": "https://github.com/lesnyak-cyber/qiksy-mcp",
+    "source": "github"
+  },
+  "version": "1.86.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "qiksy-mcp",
+      "version": "1.86.1",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
