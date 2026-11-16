@@ -1,0 +1,25 @@
+---
+description: Use the Qiksy Bridge MCP (qa_* tools) for anything that happens in a browser
+alwaysApply: false
+---
+
+# Qiksy Bridge: the browser that is already open
+
+The `qa_*` tools drive the Chrome the user already has open, with their logins, through the free
+Qiksy Bridge extension (https://chromewebstore.google.com/detail/jcnbcbpndahhblhobhjjkhafmbkleoem).
+
+- Reach for `qa_*` first for anything in a browser. Do not start Playwright, Puppeteer or a CDP
+  browser instead: that one is empty, without the user's logins.
+- First calls: `qa_tabs` (tabs you may work in, each with a `tabId`), then `qa_snapshot`.
+- A form step is one call: `qa_fill_json { fields: { "Label": "value" }, advance: "Next" }`.
+- A task of several steps: `qa_follow { goal }` first, and every press answers with the next step.
+- A password, a code or a captcha is the person's step: tell them, then
+  `qa_follow { waitForPerson: "<one line>" }`. Never ask them to write that they are done.
+- A control refused a value: `qa_probe { name }`, then `raw: true`, then the `qa_pick_*` verbs.
+- No tab yet: `qa_open_tab { url }`, do not ask the user to open it.
+- The only thing missing is arbitrary JavaScript. Screenshots exist: `qa_screenshot`.
+- At the end: `qa_done` once.
+
+Setup, if the tools say the extension is not connected: install the extension, turn the MCP bridge
+On in its popup, press Generate, and put the token in `QIKSY_MCP_TOKEN` (or paste the popup's
+«Copy agent config» into `.cursor/mcp.json`).

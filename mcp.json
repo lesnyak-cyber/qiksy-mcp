@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "qiksy": {
+      "command": "npx",
+      "args": ["-y", "qiksy-mcp", "--port", "7333"],
+      "env": { "QIKSY_MCP_TOKEN": "${env:QIKSY_MCP_TOKEN}" }
+    }
+  }
+}
