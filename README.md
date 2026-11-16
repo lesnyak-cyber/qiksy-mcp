@@ -1,10 +1,16 @@
 # qiksy-mcp
 
-A **browser MCP server** for the tab you already have open. Pairs with **Qiksy Bridge**, the [Qiksy](../) Chrome extension. It lets any MCP-capable coding agent — **Claude Code, Cursor, Cline, Windsurf, Zed, VS Code** — read the live QA state (findings with CSS selectors, detected forms, failed requests with server error bodies, recorded repro steps) straight from the browser, so you can say *"fix what Qiksy found on this page"* and the agent has the full context.
+> **This server needs the free Qiksy Bridge Chrome extension. On its own it has nothing to drive.**
+>
+> 1. Install **Qiksy Bridge** from the [Chrome Web Store](https://chromewebstore.google.com/detail/jcnbcbpndahhblhobhjjkhafmbkleoem) (free, no account).
+> 2. Click its icon, turn the **MCP bridge** On and press **Generate**.
+> 3. Press **Copy agent config** and paste it into your agent's MCP settings (`.mcp.json` for Claude Code, `~/.cursor/mcp.json` for Cursor, `.vscode/mcp.json` for VS Code). Restart the agent window.
+>
+> That is the whole setup: the agent now works in the Chrome you already have open, with your logins.
 
-The agent can also **drive Qiksy's own surfaces**: open the panel, run the audit, pull the exploratory-tour checklist, generate the session report, and spotlight an element.
+A **browser MCP server** for the tab you already have open. Pairs with **Qiksy Bridge**, the [Qiksy](https://qiksy.app/qa-copilot/) Chrome extension. It lets any MCP-capable coding agent — **Claude Code, Cursor, Cline, Windsurf, Zed, VS Code** — read the live QA state (findings with CSS selectors, detected forms, failed requests with server error bodies, recorded repro steps) straight from the browser, so you can say *"fix what Qiksy found on this page"* and the agent has the full context.
 
-By default it stops there — it does **not** fill, click, submit or navigate the app you're testing. Qiksy senses and reports; you drive. **Agent control** (Pro, off until you switch it on and confirm a prompt of its own) is the deliberate exception: it lets the agent act inside the session you are *already logged into*, which is the whole reason to use this rather than a cold automated browser. The default posture is unchanged — that boundary is what keeps a tool that watches *other people's* apps trustworthy — but a professional can move it knowingly.
+With **Agent control** switched on (free, one confirmation in the popup) the agent also **acts** in that tab: it fills whole forms, clicks, uploads files, navigates and follows a multi-step task to the end, all inside the session you are *already logged into*. That is the whole reason to use this rather than a cold automated browser: no second browser, no re-login, SSO and staging just work. Until you switch it on, the agent only reads.
 
 ## How it works
 
@@ -12,20 +18,16 @@ By default it stops there — it does **not** fill, click, submit or navigate th
 agent  ⟷ (MCP over stdio, JSON-RPC)  ⟷  qiksy-mcp  ⟷ (WebSocket @ 127.0.0.1)  ⟷  extension service worker
 ```
 
-The extension is the WebSocket **client** (a service worker can't listen on a socket); this process is the WebSocket **server**, bound to loopback only. When the agent calls a tool, this process asks the extension for the current tab's `qa-export/v1` bundle and returns it.
+The extension is the WebSocket **client** (a service worker can't listen on a socket); this process is the WebSocket **server**, bound to loopback only. When the agent calls a tool, this process passes it to the extension, which answers from the live page.
 
 ## Two things to know before you wire it up
 
-**All of it is free, bridge included, as of extension 1.72.0.** There is no licence, no
-trial that runs out, no key and no account, so nothing here can lapse and no integration
-needs planning around a tier. Until 1.71.0 the socket itself was gated: `ensureConnected()`
-refused to dial without a valid licence, and once a trial ended *every* tool failed,
-`qa_export` included. That gate is gone. What remains, and is not going anywhere, is the
-**`drive` consent**: reading is free and unconditional, while acting on the application
-under test asks the human once, in the popup.
+**All of it is free.** No licence, no trial, no key and no account. The one gate is the
+**`drive` consent**: reading is unconditional, while acting on the application under test
+asks the human once, in the popup.
 
-**npm carries `qiksy-mcp@1.44.0`** — the current build, with all sixty-two tools
-including a filterable full-page `qa_snapshot`, `qa_fill_json` (a whole wizard step —
+**`npx qiksy-mcp` always runs the latest build**, with every tool
+including `qa_follow` (a task of several steps answered step by step), a filterable full-page `qa_snapshot`, `qa_fill_json` (a whole wizard step —
 custom dropdowns, calendars, cascaders, trees, tags and time included — in one call),
 the `qa_pick_*` verbs for the composites, `qa_probe` for the one control that refuses,
 recipes that make the second run cheap (`qa_recipe_save` / `qa_recipe_list` /
@@ -39,8 +41,8 @@ with the project as its working directory, so the process already knows where th
 it writes the full agent guide to `.claude/qiksy-bridge.md` and adds a short, marker-fenced
 block to `CLAUDE.md` / `AGENTS.md` — the rules that decide whether a run goes well. **The
 bridge is the first browser tool in the project**; a form is one call; a control that refuses
-is a ladder, not a reason to reach for a second browser driver; and the only two things worth
-handing over for are a screenshot and `evaluate`.
+is a ladder, not a reason to reach for a second browser driver; and the only thing worth
+handing over for is arbitrary JavaScript (`evaluate`).
 
 It is careful about it: only where a project actually is (a `.git`, a `package.json` or an
 agent file already present — a bare `$HOME` gets nothing), byte-idempotent (identical content
@@ -54,7 +56,7 @@ Flags: `--dir <project>`, `--out <path>`, `--no-claude` (print the block instead
 
 ## Tools
 
-Sixty-six in total. **Read** — sense the page (all accept an optional `tabId` from `qa_tabs`; default = the tabs you attached to the agent session, or the active tab if you attached none):
+Eighty-two in total. **Read** — sense the page (all accept an optional `tabId` from `qa_tabs`; default = the tabs you attached to the agent session, or the active tab if you attached none):
 
 | Tool          | What it returns |
 |---------------|-----------------|
@@ -82,7 +84,7 @@ Sixty-six in total. **Read** — sense the page (all accept an optional `tabId` 
 
 
 **Asking a reply for the fields you want.** The big reads (`qa_snapshot`, `qa_export`, `qa_findings`,
-`qa_axe`, `qa_run_audit`, and both new verbs) take `select` — keep only these field paths — and
+`qa_axe`, `qa_run_audit`, `qa_collect`, `qa_watch`) take `select` — keep only these field paths — and
 `omit` — drop these: `qa_snapshot { select: ["nodes[].name", "nodes[].ref"] }`. Dots walk into
 objects, and a path through a list applies to every entry while keeping it a list, so anything you
 already knew about the reply stays true. A path that matches nothing is reported back with the field
@@ -98,7 +100,7 @@ rather than a program.
 | `qa_run_audit`  | Run the a11y/markup audit on the current DOM and return the findings (also refreshes the panel). Static, read-only DOM analysis. |
 | `qa_tour`       | Return the generated exploratory-testing checklist (from forms + interactive surfaces), auto-checked from the recorded session — raw material for test cases. Markdown + structured items. |
 | `qa_report`     | Generate Qiksy's self-contained HTML session report and return the HTML (needs History recording to have captured steps). |
-| `qa_spotlight`  | Dim + outline an element by CSS selector so the human can see what the agent means. A non-destructive overlay — no click/focus/mutation. |
+| `qa_spotlight`  | Dim + outline an element (by `ref` or CSS selector), with an optional caption, so the human can see what the agent means. A non-destructive overlay — no click/focus/mutation. |
 | `qa_focus_tab`  | Bring a tab in front of the human — activate it, raise its window — so a walkthrough happens where they are actually looking. The one verb that deliberately takes their attention: scoped to the app under test and its isolated logins, and meant for "show me", not for the agent's own convenience. Pair with `qa_spotlight`, whose `label` turns a run of clicks into "step 3 of 6". |
 | `qa_open_tab`   | Open an address the driving verbs will not navigate to — as a **new** tab, beside the ones already open, losing nothing. The out-of-scope refusal stays exactly as it is; this is the sanctioned way through it. It lands in the right browser by construction: a machine has several Chrome profiles, the extension lives in one, and naming a profile does not work (a running Chrome ignores the flag and still exits 0), so this anchors on a tab the bridge can already see and inserts the new one into that window. Read the answer: `inSession: true` carries the tabId to drive; `inSession: false` means it is open but the human has to switch "Agent drives this tab" on for it. macOS for now. |
 
@@ -132,19 +134,17 @@ Because tools accept a `tabId`, an agent can read **several logins at once**: ca
 | `qa_reload` | Reload the tab and wait until the page answers again. An action, not a read: an unsaved form dies with it, which is why it takes the same gates as a click. |
 | `qa_dialogs` | What the page's **native dialogs** do — `beforeunload` ("Leave site?"), `confirm`, `alert`, `prompt`. Nothing can click those: they are browser chrome, outside the document. This decides their answer instead, per tab, off by default, and **every suppressed dialog is reported as a finding carrying the question the page asked and the answer given** — the app DID ask; Qiksy answered. `op:"list"` is free; setting one takes the drive gates, because an auto-accepted `confirm()` can be the one in front of Delete. |
 
-**One step of a multi-step form is about three calls**, and this is the single biggest
-difference between a fast run and a slow one:
+**One step of a multi-step form is one call**, and this is the single biggest difference
+between a fast run and a slow one:
 
 ```
-qa_snapshot { fields_only: true, roles: ["button"] }   → the step's controls, not the whole app
-qa_type_many { fields: [ …the entire step… ] }          → dropdowns, dates and inputs together
-qa_click { ref: <Next> }                                → its `changed` says the step advanced
+qa_follow { goal: "create the initiative" }          → once, at the start: every press now answers with the next step
+qa_fill_json { fields: { "Initiative name": "Test run", "Country": "Ukraine",
+                         "Start date": "2026-08-01", "I agree": true }, advance: "Next" }
+                                                     → the whole step, labels instead of refs, then Next
 ```
 
-**When you already hold the data**, skip the mapping entirely — `qa_fill_json { fields: { "Initiative
-name": "Test run", "Country": "Ukraine", "Start date": "2026-08-01", "I agree": true } }` is the whole
-step in one call, labels instead of refs. Keep `qa_snapshot` + `qa_type_many` for when you must pick a
-specific control among duplicates.
+Keep `qa_snapshot` + `qa_type_many` for when you must pick a specific control among duplicates.
 
 Opening a dropdown, snapshotting to read its options and clicking one works, but it pays
 a settle window twice per field and costs three round trips where the batch costs a share
@@ -283,7 +283,7 @@ There used to be a third, a Pro licence or an unexpired trial; it went when the 
 
 **Pixels are no longer on that list.** `qa_screenshot` returns a real picture of the page or of one element, with the panel hidden and password and card fields covered before the frame is taken; `path` writes it to a file instead of spending your context on base64. One condition, and it is real: the browser photographs the window's **active** tab, so a background tab cannot be photographed and Qiksy refuses rather than handing you a page you did not ask about. Reach for the numbers first anyway — boxes in CSS pixels (`qa_snapshot { geometry: true }`), computed styles and the design token behind a colour cost nothing and work in a background tab.
 
-For those, **[Playwright MCP](https://github.com/microsoft/playwright-mcp)** is the right neighbour — and it is also the right tool when a run must be reproducible from cold, in CI, with waits, tracing and parallel contexts. It can attach over CDP to the very browser Qiksy runs in ([wiring below](#wiring-both-servers-playwright-mcp-needs-a-cdp-browser)), so a screenshot comes from the session you are actually in.
+For that, and for a run that must be reproducible from cold in CI with tracing and parallel contexts, **[Playwright MCP](https://github.com/microsoft/playwright-mcp)** is the right neighbour. It can attach over CDP to the very browser Qiksy runs in ([wiring below](#wiring-both-servers-playwright-mcp-needs-a-cdp-browser)), so it works in the session you are actually in.
 
 **Example workflow (Jira story → verified test cases):**
 
@@ -294,11 +294,11 @@ For those, **[Playwright MCP](https://github.com/microsoft/playwright-mcp)** is 
 
 **How fast, and why it matters.** Measured on the same page and question ("what forms are here with selectors, and what is broken?"): `qa_export` answers in **~9 ms** from an already-open tab, against **~2.5 s** for Playwright from a cold start — but that gap is almost entirely browser launch. With both browsers already up it is ~9 ms vs ~28 ms for an equivalent DOM scrape: the same order. The reason to use Qiksy is not raw speed, it is that the 9 ms carries *meaning* — `kind: "first-name"`, the label, `required`, `maxLength`, plus findings, failed requests with server bodies and repro steps in the same payload. A scrape returns raw DOM and leaves the agent to work out what each field is; matching the rest needs more code and a reload to attach console listeners before load.
 
-So: **Agent control for anything that happens in the live, already-authenticated session — which is nearly everything. Playwright when you need a picture, `evaluate`, or a run that starts from cold in CI.** Reading is worth doing through Qiksy either way.
+So: **Agent control for anything that happens in the live, already-authenticated session — which is nearly everything. Playwright when you need `evaluate`, or a run that starts from cold in CI.** Reading is worth doing through Qiksy either way.
 
 ### Wiring both servers (Playwright MCP needs a CDP browser)
 
-Only worth doing for the two gaps above — screenshots and `evaluate`. Playwright MCP drives a browser over the **Chrome DevTools Protocol** — a *normal* Chrome window can't be driven, you must start Chrome with a debugging port so Playwright can attach. Qiksy must be **installed in that same Chrome** (from the Web Store, or loaded unpacked) so its content scripts + bridge run there.
+Only worth doing for the gap above — `evaluate`. Playwright MCP drives a browser over the **Chrome DevTools Protocol** — a *normal* Chrome window can't be driven, you must start Chrome with a debugging port so Playwright can attach. Qiksy must be **installed in that same Chrome** (from the Web Store, or loaded unpacked) so its content scripts + bridge run there.
 
 1. **Launch Chrome with the debug port** (quit other Chrome windows first, or use a separate `--user-data-dir`):
    ```bash
@@ -324,7 +324,7 @@ Only worth doing for the two gaps above — screenshots and `evaluate`. Playwrig
      }
    }
    ```
-   Now the agent has **hands** (Playwright, attached to your real Chrome) and a **QA brain** (Qiksy).
+   Now the agent has Qiksy for everything in the live session and Playwright, attached to the same Chrome, for `evaluate`.
 
 ### Multi-login (RBAC) with the agent
 
@@ -378,14 +378,16 @@ The popup shows the live link state, so you fix the right thing instead of guess
 | 🟢 **Agent connected** | Socket open on that port, token matched. | Nothing — you're live. |
 | 🟡 **Waiting for the agent** | Bridge on, but nothing answering on that port. | Start your agent so `qiksy-mcp` runs, and make sure **its `--port` matches the popup's port**. The #1 snag: docs pin `7333` but the agent was launched on a different port — the numbers must match. |
 | 🔴 **Token rejected** | Something answered, but the shared secret didn't match. | The popup token and the agent's `QIKSY_MCP_TOKEN` must be identical. Re-copy with **📋 Copy agent config** and repaste. |
-| 🔴 **Another browser took over** | A second browser connected on the same port+token and claimed the slot. | Expected when switching browsers. To run **both at once**, give each its own port (see below). To reclaim, toggle the bridge **off then on**. |
+| 🔴 **Another browser took over** | Only an **old** `qiksy-mcp` (before 1.82) does this: it kept one browser and pushed the first off when a second connected. | Close the agent window that has run for days, or restart it so it fetches the current server. The extension retries by itself after a minute; toggling it **off then on** brings it back at once. |
 | 🔴 **A licence is required** | Only possible against an **old extension** (1.71.0 or earlier), whose key or trial ran out. | Update the extension: `chrome://extensions` → Update. Nothing needs buying; Qiksy is free from 1.72.0. |
 
 One failure has nothing to do with the popup, and the tool result says so in words: **“Port … is held by something this bridge cannot share it with.”** Another process (or an older `qiksy-mcp`, or one on a different token) owns the port, so *this* agent window has no link — the extension and the browser are fine. Restart or update whatever holds the port, or give this window its own `--port`.
 
 ### Two browsers at once
 
-One bridge is **one port + one token = one browser**. Pointing a second browser at the **same** port+token doesn't double up — it **takes over the slot** (last writer wins), and the first browser's status flips to *Another browser took over*. That's exactly how you **switch** between browsers. To run **both simultaneously**, give each its own port and register a second server name:
+**Since 1.82 several browsers share one port and one token.** Point a second browser, or a second Chrome profile, at the same bridge and both stay connected: every tab in `qa_tabs` names its `browser` (1 is the one that connected first), a call with that tab's `tabId` goes to the browser holding it, and a call with no `tabId` goes to browser 1. Nothing to configure.
+
+Separate ports still work if you want two fully independent links, each under its own server name:
 
 ```json
 { "mcpServers": {
@@ -393,8 +395,6 @@ One bridge is **one port + one token = one browser**. Pointing a second browser 
   "qiksy-2": { "command": "npx", "args": ["-y", "qiksy-mcp", "--port", "7334"], "env": { "QIKSY_MCP_TOKEN": "TOKEN_B" } }
 } }
 ```
-
-Set browser A's popup to `7333`/`TOKEN_A` and browser B's to `7334`/`TOKEN_B`. One agent drives one browser per bridge — a single bridge can't fan out to two browsers; different ports are independent links that never fight over the slot.
 
 ### Several agent windows, one browser (automatic since 1.1.0)
 
@@ -467,7 +467,7 @@ Logs go to **stderr** (stdout is the JSON-RPC channel). You should see `bridge l
 
 ## Notes / limits
 
-- **One tab at a time**: tools read the *active* tab in the last-focused Chrome window. Focus the app under test.
+- **Which tab**: every tool takes a `tabId` from `qa_tabs`, so the agent works in a background tab while you use another. Without one it uses the tabs you attached to the agent session, or the active tab. Only a screenshot needs its tab in front, because the browser photographs what is on screen.
 - **Service-worker sleep**: if Chrome idles the extension's worker, the socket drops and reconnects automatically (≤~30 s). If a tool times out, retry.
 - **Security**: bound to `127.0.0.1` only; connections without the matching token (or from a non-extension origin) are closed before any data is sent.
 

@@ -1261,8 +1261,18 @@ function bridgeUnavailableMessage() {
   if (role === 'follower') {
     return 'The agent window that owned this bridge just dropped; the port is being taken over automatically. Try again in a moment.';
   }
-  return 'Qiksy extension is not connected. Open Chrome with the extension and enable the MCP bridge in its popup (matching token & port).';
+  /* THE SERVER IS FOUND ON ITS OWN NOW (16.11.2026: public repo, the MCP registry, directories), so
+     the person reading this may never have heard of the extension. Without it this process has
+     nothing to drive, and «not connected» told them to fix something they do not have. */
+  return (
+    'Qiksy Bridge extension is not connected. This server drives the browser THROUGH a free Chrome extension, so with no extension there is nothing to drive. ' +
+    `Tell the person, in one line each: 1) install Qiksy Bridge from the Chrome Web Store: ${STORE_URL} ; ` +
+    '2) click its icon, turn the MCP bridge On and press Generate; ' +
+    '3) press «Copy agent config» there and paste it into this agent\'s MCP settings (.mcp.json, ~/.cursor/mcp.json or .vscode/mcp.json), then restart this agent window. ' +
+    'If the extension IS installed, the bridge switch in its popup is off, or its token and port do not match this window.'
+  );
 }
+const STORE_URL = 'https://chromewebstore.google.com/detail/jcnbcbpndahhblhobhjjkhafmbkleoem';
 
 openBridge();
 
