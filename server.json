@@ -8,12 +8,12 @@
     "url": "https://github.com/lesnyak-cyber/qiksy-mcp",
     "source": "github"
   },
-  "version": "1.86.2",
+  "version": "1.87.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "qiksy-mcp",
-      "version": "1.86.2",
+      "version": "1.87.0",
       "transport": {
         "type": "stdio"
       }

@@ -7985,6 +7985,14 @@ async function waitForPerson(f, hint, timeoutMs, extra) {
     const target = start.personRef || start.fields.find((x) => !x.value)?.ref;
     if (target) await callExtension('qa_spotlight', { tabId: f.tabId, ref: target, label: hint.trim().slice(0, 200) }, 10_000).catch(() => {});
   }
+  /* «YOUR TURN» — the same line as a card that survives reloads and redirects (extension 1.87+).
+     With no new text (`waitForPerson: true` after stillWaiting) it renews the card already showing.
+     An older extension answers «Unknown tool», and the spotlight above is then all there is. */
+  await callExtension('qa_person_turn', {
+    tabId: f.tabId,
+    ...(typeof hint === 'string' && hint.trim() ? { text: hint.trim() } : {}),
+    ttlMs: total + 60_000,
+  }, 10_000).catch(() => {});
   const token = extra?._meta?.progressToken;
   const beat = token && typeof extra?.sendNotification === 'function'
     ? setInterval(() => {
@@ -8009,6 +8017,7 @@ async function waitForPerson(f, hint, timeoutMs, extra) {
         changedAt = Date.now();
         continue;
       }
+      await callExtension('qa_person_turn', { tabId: f.tabId, clear: true }, 10_000).catch(() => {});
       return { ok: true, personDone: true, waitedMs: Date.now() - t0, step: await readFollowStep(f.tabId, f) };
     }
   } finally {
@@ -8029,7 +8038,7 @@ server.registerTool(
     title: 'Follow a multi-step task',
     description:
       'Turn this on at the START of anything with several steps — a sign-up, a wizard, creating an app in a developer console, a checkout. From then on every click, key, fill, type, upload and navigation on that tab answers with the STEP IT LED TO: the page is waited for until it stops loading, and the reply carries `step` — where the wizard is (`progress`), what changed since the last step (`changes`: a button became active, an error appeared, a new heading), the fields still to fill, the live buttons, and `yourMove`. No qa_snapshot, qa_read or qa_wait_ready between steps: the reply to the press IS the next step, so keep going instead of stopping to report after each one. ' +
-      'WHEN THE STEP IS THE PERSON\'S — a password, a code from their phone or mail, a captcha — the step says `personNeeded`. Tell them in one line, then call `qa_follow { waitForPerson: "<that line, in their language>" }` in the same turn: the line is shown on the page beside the field, and the call returns by itself the moment the page moves on (up to 15 minutes; `stillWaiting` means call it again — never ask them to write that they are done). ' +
+      'WHEN THE STEP IS THE PERSON\'S — a password, a code from their phone or mail, a captcha — the step says `personNeeded`. Tell them in one line, then call `qa_follow { waitForPerson: "<that line, in their language>" }` in the same turn: the line is shown beside the field and as a «Your turn» card at the top of the page that survives reloads (extension 1.87+), and the call returns by itself the moment the page moves on (up to 15 minutes; `stillWaiting` means call it again — never ask them to write that they are done). ' +
       'It stays on until qa_done or `off: true`; a new qa_follow with another goal replaces it. Reading only: following needs no consent, the acting verbs keep their own gate.',
     inputSchema: {
       tabId: tabIdArg,
@@ -8047,6 +8056,8 @@ server.registerTool(
       if (off) {
         const was = following;
         following = null;
+        // Nobody is waiting any more, so no «your turn» card may stay up.
+        if (was) await callExtension('qa_person_turn', { tabId: was.tabId, clear: true }, 10_000).catch(() => {});
         return asText({ ok: true, following: false, ...(was ? { steps: was.steps, goal: was.goal } : {}) });
       }
       if (!following || (tabId != null && following.tabId !== Number(tabId)) || (goal && goal !== following.goal)) {

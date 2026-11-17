@@ -1,6 +1,6 @@
 {
   "name": "qiksy-mcp",
-  "version": "1.86.2",
+  "version": "1.87.0",
   "mcpName": "app.qiksy/bridge",
   "description": "Browser MCP server for the Chrome tab you already have open — your session, your logins. Gives Claude Code, Cursor, Codex and VS Code the live page: findings, forms, failed requests with server bodies.",
   "keywords": [
