@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "qiksy-bridge",
+  "displayName": "Qiksy Bridge",
+  "version": "1.88.0",
+  "description": "Browser MCP for the Chrome you already have open, with your logins: snapshot, fill whole forms in one call, click, screenshot, read console and network errors. Needs the free Qiksy Bridge extension.",
+  "author": {
+    "name": "Qiksy",
+    "email": "hello@qiksy.app",
+    "url": "https://qiksy.app"
+  },
+  "homepage": "https://qiksy.app/qa-copilot/",
+  "repository": "https://github.com/lesnyak-cyber/qiksy-mcp",
+  "license": "MIT",
+  "keywords": [
+    "browser",
+    "mcp",
+    "chrome",
+    "automation",
+    "testing",
+    "qa",
+    "forms",
+    "screenshot"
+  ],
+  "mcpServers": {
+    "qiksy": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "qiksy-mcp",
+        "--port",
+        "7333"
+      ],
+      "env": {
+        "QIKSY_MCP_TOKEN": "${user_config.token}"
+      }
+    }
+  },
+  "userConfig": {
+    "token": {
+      "type": "string",
+      "title": "Qiksy bridge token",
+      "description": "From the Qiksy extension popup: Agent bridge (MCP) On, then Generate. Leave empty if this computer already trusts the browser (npx qiksy-mcp trust <token> or npx qiksy-mcp connect).",
+      "sensitive": true,
+      "default": ""
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "qiksy",
+  "description": "Qiksy Bridge: drive the browser you already have open from your coding agent.",
+  "owner": {
+    "name": "Qiksy",
+    "email": "hello@qiksy.app",
+    "url": "https://qiksy.app"
+  },
+  "plugins": [
+    {
+      "name": "qiksy-bridge",
+      "source": "./",
+      "description": "Browser MCP for the Chrome you already have open, with your logins, plus a skill that teaches the agent to use it well. Needs the free Qiksy Bridge extension.",
+      "category": "development",
+      "homepage": "https://qiksy.app/qa-copilot/"
+    }
+  ]
+}

@@ -58,7 +58,7 @@ Flags: `--dir <project>`, `--out <path>`, `--no-claude` (print the block instead
 
 ## Tools
 
-Eighty-two in total. **Read**: sense the page (all accept an optional `tabId` from `qa_tabs`; default = the tabs you attached to the agent session, or the active tab if you attached none):
+Eighty-four in total. **Read**: sense the page (all accept an optional `tabId` from `qa_tabs`; default = the tabs you attached to the agent session, or the active tab if you attached none):
 
 | Tool          | What it returns |
 |---------------|-----------------|
@@ -363,6 +363,31 @@ a bare `npx` fails in about half the clients there.
 Flags: `--dir <path>` (which project), `--port <n>`, `--token <value>`, and `--no-connect` on
 `init` if you want the guide without the wiring.
 
+### Install as a plugin
+
+The [GitHub repo](https://github.com/lesnyak-cyber/qiksy-mcp) is also a plugin: the MCP server
+plus a `qiksy-bridge` skill that teaches the agent to use it (bridge first, one call per form step,
+waiting for the person's password step by itself).
+
+**Claude Code**, inside a session:
+
+```
+/plugin marketplace add lesnyak-cyber/qiksy-mcp
+/plugin install qiksy-bridge@qiksy
+```
+
+It asks for the token from the popup once and keeps it in your system's secure storage. Already
+paired this computer? Leave it empty.
+
+**Cursor, GitHub Copilot, OpenAI Codex and other [Agent Plugins](https://agent-plugins.org)
+clients**: install it from [cursor.directory](https://cursor.directory) or point the client at
+`https://github.com/lesnyak-cyber/qiksy-mcp`. Then give the server your browser's token once, with
+no restart:
+
+```bash
+npx -y qiksy-mcp trust <token-from-the-popup>
+```
+
 ### The manual way
 
 1. **In the extension popup** → *Agent bridge*: toggle **On**, click **Generate** for a token, keep the default port `7333` (or pick your own). It **saves as you go**, there is no separate Save step.
@@ -458,6 +483,47 @@ Same canonical shape:
   } }
 }
 ```
+
+### OpenAI Codex (`~/.codex/config.toml`)
+
+```toml
+[mcp_servers.qiksy]
+command = "npx"
+args = ["-y", "qiksy-mcp", "--port", "7333"]
+env = { QIKSY_MCP_TOKEN = "YOUR_TOKEN" }
+tool_timeout_sec = 330
+```
+
+Codex ends a tool call after 60 seconds by default. The server knows that: in Codex a wait for a
+person (a sign-in, a code from a phone) answers within 50 seconds with `stillWaiting` and the call to
+repeat. `tool_timeout_sec = 330` lets one call wait the full five minutes instead.
+
+### Fewer tools: `QIKSY_TOOLS=core`
+
+Some clients cap the number of tools across all servers (Windsurf at 100, VS Code's local agent at
+128), and every tool description costs context. `QIKSY_TOOLS=core` in the server's `env` lists 30
+tools: tabs, snapshot, read, collect, screenshot, findings, styles, storage, click, type, fill a
+form, press, hover, upload, navigate, reload, wait, follow, probe, date and tree pickers, mocks,
+dialogs, help and done. The default is `full`, all 84.
+
+Every tool is annotated: reads carry `readOnlyHint`, and every verb that can press something in the
+page carries `destructiveHint`, so a client that approves reads on its own (Codex's `writes` mode,
+Cursor's auto-review) stops asking about them.
+
+### Protocol and skills
+
+The server speaks both MCP protocol eras: the 2025 one with an `initialize` handshake and the
+stateless 2026-07-28 one with `server/discover`. It also serves the agent guide as a skill
+(Skills over MCP, `skill://qiksy-bridge/SKILL.md`), which VS Code picks up by itself; the same
+`SKILL.md` ships in the plugin. Requires Node 20 or newer.
+
+### Pages that declare their own tools (WebMCP)
+
+Some sites declare actions for agents through WebMCP (`document.modelContext`), such as «search
+flights» or «add to cart». `qa_webmcp_list` shows the ones the page in a tab declares, and
+`qa_webmcp_call` runs one by name. Running is the page's own action, so it needs Agent control like
+a click. In Chrome, WebMCP is currently behind `chrome://flags/#enable-webmcp-testing` or a site's
+origin trial; without it the list says so and the agent drives the page as usual.
 
 ## Local run (dev)
 

@@ -1,6 +1,8 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
     "qiksy": {
+      "type": "stdio",
       "command": "npx",
       "args": ["-y", "qiksy-mcp", "--port", "7333"],
       "env": { "QIKSY_MCP_TOKEN": "${env:QIKSY_MCP_TOKEN}" }
