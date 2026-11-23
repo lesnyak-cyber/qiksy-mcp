@@ -1,5 +1,7 @@
 # qiksy-mcp
 
+[![lesnyak-cyber/qiksy-mcp MCP server](https://glama.ai/mcp/servers/lesnyak-cyber/qiksy-mcp/badges/score.svg)](https://glama.ai/mcp/servers/lesnyak-cyber/qiksy-mcp)
+
 > **This server needs the free Qiksy Bridge Chrome extension. On its own it has nothing to drive.**
 >
 > 1. Install **Qiksy Bridge** from the [Chrome Web Store](https://chromewebstore.google.com/detail/jcnbcbpndahhblhobhjjkhafmbkleoem) (free, no account).
