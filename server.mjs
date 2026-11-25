@@ -38,6 +38,9 @@ import { project } from './project.mjs';
 import { recordGap, listGaps, gapInvite, GAPS_FILE } from './gaps.mjs';
 import { reportsDir, reportFileName } from './reports.mjs';
 import { openTabHere } from './open-tab.mjs';
+import { planFor, runPlan, raiseBrowser, keysPlan, screenshotRegion } from './os-mouse.mjs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { widthLaw } from './width-law.mjs';
 import { oddOnes } from './families.mjs';
 import { STATES, STATE_KEYS, renderGallery } from './gallery.mjs';
@@ -1803,7 +1806,7 @@ function stuckHelp(text) {
  * terminal. The bridge only says which one and how — installing is the person's call, so the agent
  * asks first. Windows needs nothing installed: PowerShell reaches user32 itself. */
 const REAL_MOUSE =
-  'IF THE PAGE IGNORED THIS CLICK (it checks isTrusted), a real click comes from the operating system, run from your terminal. ' +
+  'IF THE PAGE IGNORED THIS CLICK (it checks isTrusted): call qa_real_mouse with the same target. It presses the operating system\'s own mouse and works out the screen point itself (extension and server 1.89+). Only if that is unavailable, the manual way from your terminal follows. ' +
   'Ask the person before installing anything. macOS: `brew install cliclick`, then `cliclick c:X,Y`; the terminal app needs Accessibility permission (System Settings → Privacy & Security → Accessibility). ' +
   'Windows, nothing to install: PowerShell `Add-Type -MemberDefinition \'[DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y); [DllImport("user32.dll")] public static extern void mouse_event(int f,int x,int y,int d,int e);\' -Name M -Namespace W; [W.M]::SetCursorPos(X,Y); [W.M]::mouse_event(2,0,0,0,0); [W.M]::mouse_event(4,0,0,0,0)`; or AutoHotkey (`winget install AutoHotkey.AutoHotkey`, `Click X, Y`). ' +
   'Linux on X11: `xdotool mousemove X Y click 1` (`sudo apt install xdotool`); on Wayland, ydotool. ' +
@@ -4999,7 +5002,7 @@ call it again with the same arguments.
 A CONTROL REFUSED A VALUE? The ladder: qa_probe { name } → raw: true → qa_pick_date / _time / _range
 / _path / _tags → a CSS selector. A control that "vanished" while the reply says \`modal\` sits behind
 an open dialog: finish or close that layer first. A page that ignores synthetic clicks (isTrusted)
-can still get a real one from the OS: qa_help { topic: "real mouse" }.
+can still get a real one from the OS: the real mouse and keyboard, qa_real_mouse and qa_real_keys.
 
 NO TAB, OR "not in the QA session"? Open it yourself with qa_open_tab { url }; do not ask the user.
 Several browsers can be connected: each tab in qa_tabs names its \`browser\`, and its tabId routes
@@ -5246,8 +5249,11 @@ with qa_open_tab { url }: it usually joins the session at once. Only when that a
 false, ask the human in one sentence to attach the tab, and never reach around the refusal.
 
 A REAL MOUSE, WHEN A PAGE REFUSES A SYNTHETIC CLICK. Every click from this bridge carries
-isTrusted: false, and a few pages check it and ignore the click without a word. Then press the same
-point from the operating system, from your terminal, after asking the person to install the tool:
+isTrusted: false, and a few pages check it and ignore the click without a word. Then call
+qa_real_mouse with the same target (name, ref, selector or a viewport point): it presses the
+computer's own mouse, works out the screen point itself and puts the cursor back. A marquee is
+action "drag" with \`to\`; a range is action "click" with modifiers ["shift"]. Only on an older
+extension, press the same point from your terminal, after asking the person to install the tool:
 macOS \`brew install cliclick\` then \`cliclick c:X,Y\` (the terminal app needs Accessibility
 permission); Windows needs nothing installed (PowerShell with user32 SetCursorPos + mouse_event, or
 AutoHotkey's \`Click X, Y\`); Linux \`xdotool mousemove X Y click 1\`. Those are SCREEN coordinates:
@@ -5323,6 +5329,8 @@ const DESTRUCTIVE = new Set([
   'qa_probe', 'qa_failure_gallery',
   // a page's own WebMCP tool is the page's action: an order, a sent form
   'qa_webmcp_call',
+  // the operating system's own mouse and keyboard: press and type anything, so destructive
+  'qa_real_mouse', 'qa_real_keys',
 ]);
 /* They act on the page or the browser, but cannot press anything in the app: open or raise a tab,
    draw on top of the page, hover, write a value without submitting, answer a request from a rule. */
@@ -5330,6 +5338,8 @@ const NEUTRAL = new Set([
   'qa_open_tab', 'qa_focus_tab', 'qa_open_isolated', 'qa_open_panel', 'qa_run_audit', 'qa_tour', 'qa_report',
   'qa_spotlight', 'qa_annotate', 'qa_hover', 'qa_follow', 'qa_focus_proof', 'qa_focus_walk', 'qa_mock',
   'qa_pick_date', 'qa_pick_path', 'qa_pick_tags', 'qa_pick_time', 'qa_pick_range',
+  // raises the window and photographs it from the OS; presses nothing
+  'qa_window_shot',
 ]);
 /* Verbs that touch only the extension's own store or this machine, never the page or the web. */
 const LOCAL_ONLY = new Set([
@@ -7513,6 +7523,246 @@ server.registerTool(
   async ({ tabId, x, y }) => {
     try {
       return asText(withTrustedNote(await callExtension('qa_click_point', { tabId, x, y }, 20_000)));
+    } catch (e) {
+      return asError(e);
+    }
+  },
+);
+
+/* THE REAL MOUSE AS A VERB (1.89.0). See os-mouse.mjs for why. The point comes from the worker in
+   SCREEN coordinates (qa_screen_point: window + toolbar + zoom), so nobody adds a toolbar by hand. */
+const targetArg = z
+  .object({
+    ref: z.string().optional(),
+    selector: z.string().optional(),
+    name: z.string().optional(),
+    x: z.number().optional().describe('CSS pixels from the left of the viewport'),
+    y: z.number().optional().describe('CSS pixels from the top of the viewport'),
+  })
+  .describe('An element (ref, selector or accessible name) or a viewport point (x, y)');
+
+async function screenPointOf(tabId, t, scroll) {
+  let { ref, selector } = t;
+  if (!ref && !selector && t.name) {
+    const snap = await callExtension('qa_snapshot', { tabId }, 30_000);
+    rememberSnapshot(tabId, snap);
+    const nodes = Array.isArray(snap?.nodes) ? snap.nodes : [];
+    const hit = pickNode(nodes.filter((n) => CLICKABLE_ROLES.has(n.role)), { name: t.name }, new Set()) || pickNode(nodes, { name: t.name }, new Set());
+    if (!hit) return { ok: false, error: `nothing on the page is called "${t.name}"` };
+    ref = hit.node.ref;
+  }
+  if (!ref && !selector && !(Number.isFinite(t.x) && Number.isFinite(t.y))) return { ok: false, error: 'name a target: ref, selector, name, or x and y' };
+  try {
+    return await callExtension('qa_screen_point', { tabId, ref, selector, x: t.x, y: t.y, scroll }, 20_000);
+  } catch (e) {
+    if (/unknown tool/i.test(String(e?.message || e))) {
+      return { ok: false, error: 'the Qiksy extension in this browser is older than 1.89 and cannot say where on the screen this is. It updates by itself from the store; until then, the manual way is in qa_help { topic: "real mouse" }.' };
+    }
+    throw e;
+  }
+}
+
+/* A press on a window that is not on top lands on whatever IS on top: someone else's app, a
+   different tab. So the page must SAY it is painted (qa_focus_tab reads that back from the
+   document) before anything is pressed, with two more tries, and otherwise refuse. A page frozen by
+   its own native dialog cannot answer at all; with `frozenOk` that silence is accepted, because
+   answering that dialog is exactly what the keys are for. Returns a refusal, or null to go on. */
+async function bringForward(id, { frozenOk = false } = {}) {
+  /* A page frozen by its own dialog: only the application comes forward. Activating the TAB again
+     (qa_focus_tab) makes Chrome dismiss the open confirm() as «Cancel» before any key arrives. */
+  if (frozenOk) {
+    raiseBrowser();
+    await new Promise((r) => setTimeout(r, 400));
+    return null;
+  }
+  let raised = null;
+  for (let i = 0; i < 3; i++) {
+    raiseBrowser();
+    await new Promise((r) => setTimeout(r, 350 + i * 300));
+    raised = await callExtension('qa_focus_tab', { tabId: id }, frozenOk ? 4_000 : 10_000).catch(() => (frozenOk ? { raised: true, frozen: true } : null));
+    if (raised?.raised !== false) break;
+  }
+  if (raised?.raised === false) {
+    return {
+      ok: false,
+      error: 'the browser window is not on top, so a real press would land on whatever covers it',
+      why: raised.why || 'covered',
+      whatNow: 'Ask the person to bring this Chrome window forward (or not to switch away for a few seconds), then call again.',
+    };
+  }
+  return null;
+}
+
+/* What changed, by role and name: the same shape qa_click answers with, from two snapshots. */
+async function pageKeys(tabId) {
+  // Short: a click that opened the browser's own dialog leaves the page frozen until it is answered.
+  const snap = await callExtension('qa_snapshot', { tabId }, 8_000).catch(() => null);
+  const keys = new Map();
+  for (const n of Array.isArray(snap?.nodes) ? snap.nodes : []) {
+    const k = `${n.role} "${String(n.name || '').slice(0, 80)}"${n.state ? ` ${n.state}` : ''}`;
+    keys.set(k, (keys.get(k) || 0) + 1);
+  }
+  return { keys, url: snap?.url };
+}
+function keyDiff(a, b) {
+  const appeared = [];
+  const disappeared = [];
+  for (const [k, c] of b.keys) if ((a.keys.get(k) || 0) < c) appeared.push(k);
+  for (const [k, c] of a.keys) if ((b.keys.get(k) || 0) < c) disappeared.push(k);
+  return { appeared: appeared.slice(0, 12), disappeared: disappeared.slice(0, 12), ...(a.url !== b.url ? { navigated: { from: a.url, to: b.url } } : {}) };
+}
+
+server.registerTool(
+  'qa_real_mouse',
+  {
+    title: 'Real mouse from the operating system',
+    description:
+      'For pages that IGNORE synthetic events (they check isTrusted): a marquee drag that selects many items, a shift-click that selects a range, a double click, a right click, a wheel scroll that a custom scroller only takes from a real wheel. This presses the computer\'s own mouse, so it works where qa_click and qa_drag_point do nothing. Try qa_click first: it is quieter. ' +
+      'Name the target as usual (`name`, `ref`, `selector`) or give a viewport point (`x`, `y`): the bridge turns it into a SCREEN point itself (window position, tabs and toolbar, page zoom), so never work out screen coordinates by hand. `drag` goes from the target to `to`; `modifiers` holds shift, cmd, ctrl or alt during the action (shift-click for a range, cmd-click for several). ' +
+      'It brings this browser window to the front for a moment and puts the cursor back where it was. The person sees the cursor move: say so before a long run. The reply carries what changed on the page, like qa_click. macOS needs Accessibility permission for the app running you (asked once by the system).' +
+      DRIVE_NOTE,
+    inputSchema: {
+      tabId: tabIdArg,
+      action: z.enum(['click', 'double', 'right', 'drag', 'scroll', 'hover', 'move']).describe('What the mouse does. hover: leave the real pointer over the target (menus that open only for a real pointer)'),
+      steps: z.number().optional().describe('For drag: how many moves along the way (default 12; more for a slow, careful drag)'),
+      holdMs: z.number().optional().describe('For drag: how long to rest over the target before releasing (default 80; sortable lists and boards may want 300-800)'),
+      ref: z.string().optional().describe('Target element ref from qa_snapshot'),
+      selector: z.string().optional().describe('Target element CSS selector'),
+      name: z.string().optional().describe('Target element accessible name'),
+      x: z.number().optional().describe('Or a viewport point: CSS pixels from the left'),
+      y: z.number().optional().describe('Or a viewport point: CSS pixels from the top'),
+      to: targetArg.optional().describe('For drag: where the drag ends (an element or a viewport point)'),
+      modifiers: z.array(z.enum(['shift', 'cmd', 'ctrl', 'alt'])).optional().describe('Keys held during the action'),
+      deltaY: z.number().optional().describe('For scroll: pixels down (negative scrolls up)'),
+      deltaX: z.number().optional().describe('For scroll: pixels right'),
+    },
+  },
+  async ({ tabId, action, ref, selector, name, x, y, to, modifiers, deltaY, deltaX, steps, holdMs }) => {
+    try {
+      const a = await screenPointOf(tabId, { ref, selector, name, x, y }, true);
+      if (!a?.ok) return asText(a);
+      let b = null;
+      if (action === 'drag') {
+        if (!to) return asText({ ok: false, error: 'a drag needs `to`: where it ends' });
+        b = await screenPointOf(a.tabId ?? tabId, to, false);
+        if (!b?.ok) return asText(b);
+      }
+      const id = a.tabId ?? tabId;
+      const before = await pageKeys(id);
+      /* The OS presses whatever is on top, so the window comes forward first. */
+      const refused = await bringForward(id);
+      if (refused) return asText(refused);
+      const plan = planFor(action, a.screen, b?.screen, { modifiers: modifiers || [], deltaY: deltaY || 0, deltaX: deltaX || 0, steps: steps || 12, holdMs: holdMs || 80 });
+      const ran = runPlan(plan);
+      if (!ran.ok) return asText({ ok: false, error: ran.error, from: a.screen });
+      await new Promise((r) => setTimeout(r, 700));
+      const after = await pageKeys(id);
+      note('click', id, [targetOf(id, ref, selector)]);
+      return asText({
+        ok: true,
+        action,
+        at: { element: a.field, screen: a.screen, viewport: a.viewportPoint, zoom: a.zoom },
+        ...(b ? { to: { element: b.field, screen: b.screen } } : {}),
+        ...(modifiers?.length ? { held: modifiers } : {}),
+        trusted: true,
+        changed: keyDiff(before, after),
+        ...(ran.untested ? { note: ran.untested } : {}),
+      });
+    } catch (e) {
+      return asError(e);
+    }
+  },
+);
+
+/* REAL KEYS (1.89.0). The same door as the real mouse, for what a synthetic key cannot do: a field
+   that refuses scripted text (masks, code editors, paste guards), a shortcut the page binds only to
+   real keys, and the browser's OWN dialogs, which a page script cannot reach at all: «Leave site?»,
+   confirm(), alert() and prompt() take Enter or Escape; a native file chooser takes cmd+shift+g, a
+   path and Enter. Typing goes as Unicode characters, so any language types as itself. */
+server.registerTool(
+  'qa_real_keys',
+  {
+    title: 'Real keyboard from the operating system',
+    description:
+      'Type text and press keys with the computer\'s own keyboard, for what synthetic keys cannot do: a field that refuses scripted text (input masks, code editors, paste guards), a shortcut a page listens to only from a real key, and the BROWSER\'s own windows that no page script reaches: a «Leave site?» or confirm() dialog (`keys: ["enter"]` to accept, `["escape"]` to cancel), a native file chooser (`["cmd+shift+g"]`, then the path as text, then `["enter","enter"]`). ' +
+      '`items` is an ordered list: `{ text: "…" }` enters it as a real paste (any language, any keyboard layout; the person\'s clipboard text is put back right after), `{ key: "cmd+a" }` presses a combination (enter, escape, tab, shift+tab, space, backspace, arrowdown, a-z, 0-9 with cmd/ctrl/alt/shift). Give a target (`name`, `ref`, `selector`) to real-click it first so the keys go there; with no target they go to whatever has focus in this window. Try qa_type first: it is quieter. ' +
+      'Never type passwords or codes the person did not give you for this purpose. On macOS the app running you needs Accessibility permission.' +
+      DRIVE_NOTE,
+    inputSchema: {
+      tabId: tabIdArg,
+      items: z.array(z.object({ text: z.string().optional(), key: z.string().optional(), waitMs: z.number().optional() })).describe('In order: {text} to type, {key: "cmd+a"} to press'),
+      ref: z.string().optional().describe('Element to real-click first, so the keys land in it'),
+      selector: z.string().optional(),
+      name: z.string().optional(),
+    },
+  },
+  async ({ tabId, items, ref, selector, name }) => {
+    try {
+      const plan = keysPlan(items || []);
+      if (plan.error) return asText({ ok: false, error: plan.error });
+      let id = tabId;
+      if (ref || selector || name) {
+        const a = await screenPointOf(tabId, { ref, selector, name }, true);
+        if (!a?.ok) return asText(a);
+        id = a.tabId ?? tabId;
+        const refused = await bringForward(id);
+        if (refused) return asText(refused);
+        const focus = runPlan(planFor('click', a.screen, null, {}));
+        if (!focus.ok) return asText({ ok: false, error: focus.error });
+      } else {
+        // The window alone: also the path for a page frozen by its own dialog.
+        const w = await callExtension('qa_screen_point', { tabId, windowOnly: true }, 10_000).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+        if (!w?.ok) return asText(/unknown tool/i.test(w?.error || '') ? { ok: false, error: 'the Qiksy extension here is older than 1.89; it updates by itself from the store.' } : w);
+        id = w.tabId ?? tabId;
+        const refused = await bringForward(id, { frozenOk: true });
+        if (refused) return asText(refused);
+      }
+      const ran = runPlan(plan);
+      if (!ran.ok) return asText({ ok: false, error: ran.error });
+      await new Promise((r) => setTimeout(r, 500));
+      return asText({
+        ok: true,
+        typed: (items || []).map((i) => (i.text != null ? { text: `${String(i.text).length} characters` } : { key: i.key })),
+        trusted: true,
+        ...(ran.untested ? { note: ran.untested } : {}),
+        next: 'Read the page (qa_snapshot or qa_read) to see what the keys did.',
+      });
+    } catch (e) {
+      return asError(e);
+    }
+  },
+);
+
+/* A PICTURE OF THE WINDOW FROM THE OS (1.89.0): the only view that includes the browser's own
+   dialogs, permission bubbles, a native file chooser and the tab strip. Unlike qa_screenshot it
+   cannot cover password fields first, and the reply says so. */
+server.registerTool(
+  'qa_window_shot',
+  {
+    title: 'Picture of the whole browser window, from the OS',
+    description:
+      'A screenshot of the browser WINDOW taken by the operating system, so it shows what qa_screenshot cannot: the browser\'s own dialogs («Leave site?», confirm, a permission bubble), a native file chooser, the tab strip and address bar. Use it when the page seems frozen or a dialog is suspected. ' +
+      'It brings the window to the front for the shot. Unlike qa_screenshot it CANNOT hide password or card fields: it is the screen as it is, so do not use it on a page showing secrets. macOS asks once for Screen Recording permission for the app running you.' +
+      DRIVE_NOTE,
+    inputSchema: { tabId: tabIdArg },
+  },
+  async ({ tabId }) => {
+    try {
+      const w = await callExtension('qa_screen_point', { tabId, windowOnly: true }, 10_000).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+      if (!w?.ok) return asText(/unknown tool/i.test(w?.error || '') ? { ok: false, error: 'the Qiksy extension here is older than 1.89; it updates by itself from the store.' } : w);
+      const refused = await bringForward(w.tabId ?? tabId, { frozenOk: true });
+      if (refused) return asText(refused);
+      const file = join(mkdtempSync(join(tmpdir(), 'qiksy-window-')), 'window.png');
+      const shot = screenshotRegion({ x: w.window.left, y: w.window.top, w: w.window.width, h: w.window.height }, file);
+      if (!shot.ok) return asText(shot);
+      const b64 = readFileSync(file).toString('base64');
+      rmSync(dirname(file), { recursive: true, force: true });
+      return {
+        content: [
+          { type: 'image', data: b64, mimeType: 'image/png' },
+          { type: 'text', text: JSON.stringify({ ok: true, of: 'the browser window, from the operating system', window: w.window, note: 'Not redacted: password and card fields are shown as they are on screen.', ...(shot.untested ? { untested: shot.untested } : {}) }, null, 2) },
+        ],
+      };
     } catch (e) {
       return asError(e);
     }

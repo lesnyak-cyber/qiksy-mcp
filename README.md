@@ -58,7 +58,7 @@ Flags: `--dir <project>`, `--out <path>`, `--no-claude` (print the block instead
 
 ## Tools
 
-Eighty-four in total. **Read**: sense the page (all accept an optional `tabId` from `qa_tabs`; default = the tabs you attached to the agent session, or the active tab if you attached none):
+Eighty-seven in total. **Read**: sense the page (all accept an optional `tabId` from `qa_tabs`; default = the tabs you attached to the agent session, or the active tab if you attached none):
 
 | Tool          | What it returns |
 |---------------|-----------------|
@@ -516,6 +516,23 @@ The server speaks both MCP protocol eras: the 2025 one with an `initialize` hand
 stateless 2026-07-28 one with `server/discover`. It also serves the agent guide as a skill
 (Skills over MCP, `skill://qiksy-bridge/SKILL.md`), which VS Code picks up by itself; the same
 `SKILL.md` ships in the plugin. Requires Node 20 or newer.
+
+### A real mouse: `qa_real_mouse`
+
+Some pages ignore synthetic events (they check `isTrusted`): a frame selection, a Shift-click range,
+a custom scroller. `qa_real_mouse` presses the computer's own mouse: `click`, `double`, `right`,
+`drag` (with `to`), `scroll` (with `deltaY`), holding `modifiers` such as `["shift"]`. Name the target
+as usual and the bridge works out the screen point itself (window, tabs and toolbar, page zoom). It
+brings the window forward, refuses when the window is covered, and puts the cursor back. macOS needs
+no install, only Accessibility permission for the app running the agent; Windows (PowerShell) and
+Linux (xdotool) follow the same plan. Needs extension 1.89+ and Agent control.
+
+`qa_real_keys` is the keyboard: `{ text }` enters text as a real paste (any language and layout; the
+clipboard text is put back) and `{ key: "cmd+a" }` presses real keys and shortcuts. It reaches the
+browser's own dialogs, which no page script can: `enter` or `escape` answers «Leave site?» and
+confirm(); a native file chooser takes `cmd+shift+g`, a path and `enter`. `qa_window_shot` is a
+picture of the whole browser window from the OS, dialogs included, NOT redacted. None of these press
+consent or permission prompts or solve captchas, and none press outside the browser window.
 
 ### Pages that declare their own tools (WebMCP)
 
