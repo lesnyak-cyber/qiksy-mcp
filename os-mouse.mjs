@@ -91,9 +91,28 @@ function run(argv) {
     $.CGEventSetFlags(e, f === undefined ? flags : f);
     $.CGEventPost($.kCGHIDEventTap, e);
   };
+  /* NOTHING IS PRESSED UNLESS THE BROWSER IS THE FRONT APPLICATION, checked right before every
+     press, not once at the start. An OS key goes to whatever application is in front: on 26.11.2026
+     an Escape meant for ChatGPT's selection landed in the editor running the agent and interrupted
+     it, because the browser had not come forward and nothing looked. NSWorkspace needs no permission. */
+  const want = String(plan.app || '');
+  const frontOk = () => {
+    if (!want) return true;
+    const a = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+    const name = a && !a.isNil() ? a.localizedName.js : '';
+    return !!name && (name === want || want.startsWith(name) || name.startsWith(want));
+  };
+  const frontName = () => { try { return $.NSWorkspace.sharedWorkspace.frontmostApplication.localizedName.js; } catch (e) { return ''; } };
+  const PRESS = { down: 1, up: 0, type: 1, key: 1, scroll: 1 };
+  if (!frontOk()) return JSON.stringify({ ok: false, notFront: frontName() });
   (plan.flags || []).forEach((f) => key(f, true));
   let at = home;
   for (const s of plan.steps) {
+    if (PRESS[s.t] && !frontOk()) {
+      (plan.flags || []).slice().reverse().forEach((f) => key(f, false));
+      if (plan.restore !== false) mouse(5, home, 'left', 0, 0);
+      return JSON.stringify({ ok: false, notFront: frontName(), stoppedAt: s.t });
+    }
     if (s.t === 'wait') delay(s.ms / 1000);
     else if (s.t === 'move') { mouse(5, s); at = s; }
     else if (s.t === 'down') mouse(s.button === 'right' ? 3 : 1, s, s.button, s.clicks);
@@ -110,9 +129,27 @@ function run(argv) {
          clipboard text is put back right after. */
       const pb = $.NSPasteboard.generalPasteboard;
       const old = pb.stringForType($.NSPasteboardTypeString);
-      pb.clearContents;
-      pb.setStringForType($(s.text), $.NSPasteboardTypeString);
-      delay(0.05);
+      /* THE CLIPBOARD IS SHARED WITH THE PERSON. On 26.11.2026 a dictation app wrote the person's
+         own sentence into it between our write and our cmd+v, and THAT got pasted. So read it back
+         right before the paste; if it is not our text, write again, and refuse rather than paste theirs. */
+      let ours = false;
+      for (let i = 0; i < 3 && !ours; i++) {
+        pb.clearContents;
+        pb.setStringForType($(s.text), $.NSPasteboardTypeString);
+        delay(0.05);
+        const now = pb.stringForType($.NSPasteboardTypeString);
+        ours = !!now && !now.isNil() && now.js === s.text;
+      }
+      if (!ours) {
+        pb.clearContents;
+        if (old && !old.isNil()) pb.setStringForType(old, $.NSPasteboardTypeString);
+        return JSON.stringify({ ok: false, clipboardBusy: true });
+      }
+      if (!frontOk()) {
+        pb.clearContents;
+        if (old && !old.isNil()) pb.setStringForType(old, $.NSPasteboardTypeString);
+        return JSON.stringify({ ok: false, notFront: frontName(), stoppedAt: 'type' });
+      }
       const vd = $.CGEventCreateKeyboardEvent(null, 9, true);
       $.CGEventSetFlags(vd, FLAG.cmd);
       $.CGEventPost($.kCGHIDEventTap, vd);
@@ -151,8 +188,26 @@ function run(argv) {
   return JSON.stringify({ ok: true, from: [home.x, home.y] });
 }`;
 
+function browserApp() {
+  // The stand runs Chrome for Testing; the person's own browser is Google Chrome (or set this).
+  return String(process.env.QIKSY_BROWSER_APP || 'Google Chrome').replace(/"/g, '');
+}
+
 function runMac(plan) {
-  const r = spawnSync('osascript', ['-l', 'JavaScript', '-e', MAC, JSON.stringify(plan)], { encoding: 'utf8', timeout: 30_000 });
+  const r = spawnSync('osascript', ['-l', 'JavaScript', '-e', MAC, JSON.stringify({ app: browserApp(), ...plan })], { encoding: 'utf8', timeout: 30_000 });
+  let out = null;
+  try { out = JSON.parse((r.stdout || '').trim()); } catch { /* older output or none */ }
+  if (out && out.ok === false && out.clipboardBusy) {
+    return { ok: false, error: 'nothing was typed: another program kept writing to the clipboard (dictation, a clipboard manager), so a paste would have entered its text instead of ours', whatNow: 'Call again in a moment.' };
+  }
+  if (out && out.ok === false && 'notFront' in out) {
+    return {
+      ok: false,
+      notFront: true,
+      error: `nothing was pressed: ${out.notFront || 'another application'} is in front, not ${browserApp()}, and a real key or click would have gone there${out.stoppedAt ? ' (stopped mid-way, before the next press)' : ''}`,
+      whatNow: 'Ask the person to click the browser window (or not to switch away for a few seconds), then call again.',
+    };
+  }
   if (r.status !== 0) {
     const err = (r.stderr || '').trim();
     return {
@@ -266,9 +321,8 @@ export function screenshotRegion({ x, y, w, h }, file) {
 
 /* Bring the browser application to the front: the OS mouse presses whatever is on top. */
 export function raiseBrowser() {
-  if (process.platform !== 'darwin') return;
-  // The stand runs Chrome for Testing; the person's own browser is Google Chrome (or set this).
-  const app = String(process.env.QIKSY_BROWSER_APP || 'Google Chrome').replace(/"/g, '');
+  if (process.platform !== 'darwin') return true;
+  const app = browserApp();
   /* VISIBLE IS NOT FRONTMOST. A tab can be painted while its application is not the active one,
      and on macOS the first click on an inactive application's window only ACTIVATES it: the page
      never sees it (the first marquee of a run failed this way, 26.11.2026). So activate, then wait
@@ -277,7 +331,8 @@ export function raiseBrowser() {
   for (let i = 0; i < 15; i++) {
     const r = spawnSync('osascript', ['-e', 'tell application "System Events" to get name of first application process whose frontmost is true'], { encoding: 'utf8', timeout: 3_000 });
     const front = (r.stdout || '').trim();
-    if (!front || front === app || app.startsWith(front) || front.startsWith(app)) return true;
+    // An empty answer (System Events not allowed) is NOT a yes: the press-time check decides then.
+    if (front && (front === app || app.startsWith(front) || front.startsWith(app))) return true;
     spawnSync('sleep', ['0.1']);
   }
   return false;

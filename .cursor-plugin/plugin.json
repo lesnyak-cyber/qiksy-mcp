@@ -1,6 +1,6 @@
 {
   "name": "qiksy-bridge",
-  "version": "1.89.0",
+  "version": "1.89.2",
   "description": "Browser MCP for the Chrome you already have open, with your logins: snapshot, fill whole forms in one call, click, screenshot, read console and network errors. Needs the free Qiksy Bridge extension.",
   "author": {
     "name": "Qiksy",

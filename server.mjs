@@ -7654,7 +7654,7 @@ server.registerTool(
       if (refused) return asText(refused);
       const plan = planFor(action, a.screen, b?.screen, { modifiers: modifiers || [], deltaY: deltaY || 0, deltaX: deltaX || 0, steps: steps || 12, holdMs: holdMs || 80 });
       const ran = runPlan(plan);
-      if (!ran.ok) return asText({ ok: false, error: ran.error, from: a.screen });
+      if (!ran.ok) return asText({ ok: false, error: ran.error, ...(ran.whatNow ? { whatNow: ran.whatNow } : {}), from: a.screen });
       await new Promise((r) => setTimeout(r, 700));
       const after = await pageKeys(id);
       note('click', id, [targetOf(id, ref, selector)]);
@@ -7708,7 +7708,7 @@ server.registerTool(
         const refused = await bringForward(id);
         if (refused) return asText(refused);
         const focus = runPlan(planFor('click', a.screen, null, {}));
-        if (!focus.ok) return asText({ ok: false, error: focus.error });
+        if (!focus.ok) return asText({ ok: false, error: focus.error, ...(focus.whatNow ? { whatNow: focus.whatNow } : {}) });
       } else {
         // The window alone: also the path for a page frozen by its own dialog.
         const w = await callExtension('qa_screen_point', { tabId, windowOnly: true }, 10_000).catch((e) => ({ ok: false, error: String(e?.message || e) }));
@@ -7718,7 +7718,7 @@ server.registerTool(
         if (refused) return asText(refused);
       }
       const ran = runPlan(plan);
-      if (!ran.ok) return asText({ ok: false, error: ran.error });
+      if (!ran.ok) return asText({ ok: false, error: ran.error, ...(ran.whatNow ? { whatNow: ran.whatNow } : {}) });
       await new Promise((r) => setTimeout(r, 500));
       return asText({
         ok: true,
